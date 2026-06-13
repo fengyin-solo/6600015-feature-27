@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import type { Task, ClusterNode, MetricsSnapshot, TaskStatus } from '../types'
 
 // Mock data generators
@@ -44,52 +45,81 @@ interface TaskStore {
   nodes: ClusterNode[]
   metrics: MetricsSnapshot[]
   selectedTask: Task | null
+  statusFilter: TaskStatus | 'all'
+  currentPage: number
+  pageSize: number
   addTask: (name: string) => void
   retryTask: (id: string) => void
   cancelTask: (id: string) => void
   selectTask: (t: Task | null) => void
   refreshNodes: () => void
   addMetric: () => void
+  setStatusFilter: (filter: TaskStatus | 'all') => void
+  setCurrentPage: (page: number) => void
+  filteredTasks: () => Task[]
 }
 
-export const useTaskStore = create<TaskStore>((set, get) => ({
-  tasks: mockTasks(initialNodes),
-  nodes: initialNodes,
-  metrics: Array.from({ length: 20 }, (_, i) => ({
-    time: Date.now() - (20 - i) * 5000,
-    totalTasks: 100 + i * 2,
-    runningTasks: 3 + Math.floor(Math.random() * 5),
-    successRate: 85 + Math.random() * 14,
-    avgLatency: 500 + Math.random() * 2000,
-    nodeCount: 5,
-  })),
-  selectedTask: null,
-  addTask: (name) => {
-    const task: Task = {
-      id: `task-${Date.now()}`,
-      name, status: 'pending',
-      node: get().nodes[Math.floor(Math.random() * get().nodes.length)].name,
-      createdAt: Date.now(), retries: 0, maxRetries: 3, logs: [`[INFO] Task ${name} queued`],
+export const useTaskStore = create<TaskStore>()(
+  persist(
+    (set, get) => ({
+      tasks: mockTasks(initialNodes),
+      nodes: initialNodes,
+      metrics: Array.from({ length: 20 }, (_, i) => ({
+        time: Date.now() - (20 - i) * 5000,
+        totalTasks: 100 + i * 2,
+        runningTasks: 3 + Math.floor(Math.random() * 5),
+        successRate: 85 + Math.random() * 14,
+        avgLatency: 500 + Math.random() * 2000,
+        nodeCount: 5,
+      })),
+      selectedTask: null,
+      statusFilter: 'all',
+      currentPage: 1,
+      pageSize: 10,
+      addTask: (name) => {
+        const task: Task = {
+          id: `task-${Date.now()}`,
+          name, status: 'pending',
+          node: get().nodes[Math.floor(Math.random() * get().nodes.length)].name,
+          createdAt: Date.now(), retries: 0, maxRetries: 3, logs: [`[INFO] Task ${name} queued`],
+        }
+        set({ tasks: [task, ...get().tasks] })
+      },
+      retryTask: (id) => set({
+        tasks: get().tasks.map(t => t.id === id ? { ...t, status: 'pending', retries: t.retries + 1, logs: [...t.logs, '[INFO] Retrying...'] } : t)
+      }),
+      cancelTask: (id) => set({
+        tasks: get().tasks.map(t => t.id === id ? { ...t, status: 'failed' as TaskStatus, logs: [...t.logs, '[WARN] Cancelled by user'] } : t)
+      }),
+      selectTask: (t) => set({ selectedTask: t }),
+      refreshNodes: () => set({ nodes: mockNodes() }),
+      addMetric: () => {
+        const m: MetricsSnapshot = {
+          time: Date.now(),
+          totalTasks: get().tasks.length,
+          runningTasks: get().tasks.filter(t => t.status === 'running').length,
+          successRate: (get().tasks.filter(t => t.status === 'success').length / Math.max(get().tasks.length, 1)) * 100,
+          avgLatency: 500 + Math.random() * 2000,
+          nodeCount: get().nodes.filter(n => n.status !== 'offline').length,
+        }
+        set({ metrics: [...get().metrics.slice(-30), m] })
+      },
+      setStatusFilter: (filter) => set({ statusFilter: filter, currentPage: 1 }),
+      setCurrentPage: (page) => set({ currentPage: page }),
+      filteredTasks: () => {
+        const { tasks, statusFilter } = get()
+        if (statusFilter === 'all') return tasks
+        return tasks.filter(t => t.status === statusFilter)
+      },
+    }),
+    {
+      name: 'task-list-storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        statusFilter: state.statusFilter,
+        currentPage: state.currentPage,
+        pageSize: state.pageSize,
+      }),
     }
-    set({ tasks: [task, ...get().tasks] })
-  },
-  retryTask: (id) => set({
-    tasks: get().tasks.map(t => t.id === id ? { ...t, status: 'pending', retries: t.retries + 1, logs: [...t.logs, '[INFO] Retrying...'] } : t)
-  }),
-  cancelTask: (id) => set({
-    tasks: get().tasks.map(t => t.id === id ? { ...t, status: 'failed' as TaskStatus, logs: [...t.logs, '[WARN] Cancelled by user'] } : t)
-  }),
-  selectTask: (t) => set({ selectedTask: t }),
-  refreshNodes: () => set({ nodes: mockNodes() }),
-  addMetric: () => {
-    const m: MetricsSnapshot = {
-      time: Date.now(),
-      totalTasks: get().tasks.length,
-      runningTasks: get().tasks.filter(t => t.status === 'running').length,
-      successRate: (get().tasks.filter(t => t.status === 'success').length / Math.max(get().tasks.length, 1)) * 100,
-      avgLatency: 500 + Math.random() * 2000,
-      nodeCount: get().nodes.filter(n => n.status !== 'offline').length,
-    }
-    set({ metrics: [...get().metrics.slice(-30), m] })
-  },
-}))
+  )
+)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Layout, Tabs, Statistic, Row, Col, Card, Tag, Button, Input, Table, Drawer, Descriptions, Space, Progress } from 'antd'
+import { Layout, Tabs, Statistic, Row, Col, Card, Tag, Button, Input, Table, Drawer, Descriptions, Space, Progress, Select } from 'antd'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 import { useTaskStore } from '../store/tasks'
 import type { Task, TaskStatus } from '../types'
@@ -97,7 +97,39 @@ export default function Dashboard() {
             </Row>
           )},
           { key: 'tasks', label: '任务列表', children: (
-            <Table dataSource={store.tasks} columns={taskColumns} rowKey="id" size="small" pagination={{ pageSize: 10 }} />
+            <>
+              <div style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
+                <span style={{ color: '#666' }}>状态筛选：</span>
+                <Select
+                  value={store.statusFilter}
+                  onChange={store.setStatusFilter}
+                  style={{ width: 160 }}
+                  options={[
+                    { value: 'all', label: '全部' },
+                    { value: 'pending', label: '等待中' },
+                    { value: 'running', label: '运行中' },
+                    { value: 'success', label: '成功' },
+                    { value: 'failed', label: '失败' },
+                    { value: 'retry', label: '重试中' },
+                  ]}
+                />
+                <span style={{ color: '#999', fontSize: 12 }}>
+                  共 {store.filteredTasks().length} 条任务
+                </span>
+              </div>
+              <Table
+                dataSource={store.filteredTasks()}
+                columns={taskColumns}
+                rowKey="id"
+                size="small"
+                pagination={{
+                  current: store.currentPage,
+                  pageSize: store.pageSize,
+                  onChange: (page) => store.setCurrentPage(page),
+                  showSizeChanger: false,
+                }}
+              />
+            </>
           )},
           { key: 'nodes', label: '集群节点', children: (
             <Row gutter={16}>
